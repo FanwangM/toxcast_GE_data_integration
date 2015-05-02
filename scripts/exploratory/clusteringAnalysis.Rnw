@@ -1,0 +1,153 @@
+
+%% Author: Azedine Zoufir
+%% Supervisor : Dr Andreas Bender
+%% All rights reserved
+%% 28/11/14
+%% INPUT: activity matrix + in-vivo tox outcome + gene expression matrix
+%% OUTPUT: training set and testing set
+
+\documentclass{article}
+\usepackage[sc]{mathpazo}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\geometry{verbose,tmargin=2.5cm,bmargin=2.5cm,lmargin=2.5cm,rmargin=2.5cm}
+\setcounter{secnumdepth}{2}
+\setcounter{tocdepth}{2}
+\usepackage{url}
+\usepackage[unicode=true,pdfusetitle,
+bookmarks=true,bookmarksnumbered=true,bookmarksopen=true,bookmarksopenlevel=2,
+breaklinks=false,pdfborder={0 0 1},backref=false,colorlinks=false]
+{hyperref}
+\hypersetup{
+pdfstartview={XYZ null null 1}}
+
+\begin{document}
+<<setup, include=FALSE, cache=FALSE>>=
+library(knitr)
+
+FIG_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration//figures/'
+
+# set global chunk options
+opts_chunk$set(fig.path=FIG_DIR, fig.align='center', fig.show='hold')
+options(formatR.arrow=TRUE,width=90)
+@
+
+<<>>=
+### Initialisations ##########
+
+#Path to the project directory
+PROJECT_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration/'
+# Path to the directory containing the DATa for this project
+DATA_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration///data/'
+CALC_DATA_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration///data/'
+
+
+# Libraries
+library(plyr)
+library(ggplot2)
+library(gplots)
+library(reshape2)
+library(ade4)
+
+
+#Cell line for gene expression dataset
+CLINE = "MCF7"
+
+# Load clustering dataset (obj:clusDataset, type:matrix)
+#load(file.path(CALC_DATA_DIR,"datasets/clustDataset.Rdata"))
+load("C:/Users//Azedine/Dropbox/ucc_az/toxCast_lincs_integration/data/intermediate_files//clustDataset.Rdata")
+load("/home/az338//Dropbox/ucc_az/toxCast_lincs_integration/data/intermediate_files//clustDataset.Rdata")
+
+@
+
+<<Burt Table Constr>>=
+# Factorize variables
+dat = as.data.frame(clusDataset[,])
+dat[,1:ncol(dat)] = lapply(dat[,1:ncol(dat)],as.factor)
+
+# Generate Burt Table
+burt_tb= acm.burt(dat,dat)
+
+# Reduce table to active columns only (Both Variables = 1 or -1)
+# BUT MAY ALSO BE INTERESTING TO FIND ANTI-ASSOCIATIONS AS WELL (e.g 1 var = 1, and the other is always 0)
+active_var=grep("*\\.1$|*\\.-1$",colnames(burt_tb))
+burt_tb = burt_tb[rownames(burt_tb)[active_var],colnames(burt_tb)[active_var]]
+
+<<Full_Burt_Table>>=
+# Hierarchical clustering
+#h_clust=heatmap.2(as.matrix(burt_tb),trace="none",col=c("white","red"),labRow = NULL,labCol = NULL)
+h_clust = hclust(dist(as.matrix(burt_tb),method="binary"))
+
+# Processing of table for plot
+burt_tb$id = rownames(burt_tb)
+burt_df = melt(burt_tb,id="id")
+colnames(burt_df) = c("Variable1","Variable2","N")
+
+# Roeorder rows/columns according to hier. clustering
+#burt_df$Variable1 = factor(burt_df$Variable1,levels=rownames(burt_tb)[h_clust$rowInd])
+#burt_df$Variable2 = factor(burt_df$Variable2,levels=colnames(burt_tb)[h_clust$colInd])
+burt_df$Variable1 = factor(burt_df$Variable1,levels=rownames(burt_tb)[h_clust$order])
+burt_df$Variable2 = factor(burt_df$Variable2,levels=colnames(burt_tb)[h_clust$order])
+
+# Plot Burt Table with hier. clustering
+png("~/Burt_Table.png",width = 600, height = 600, units = "px", )
+ggplot(burt_df,aes(y=Variable1,x=Variable2,fill=N)) +
+geom_raster() +
+scale_fill_gradient2(limits=c(0,30), low="beige", high="red") +
+theme(axis.title.x=element_text(color="black"),
+      axis.title.y=element_text(color="black"),
+      axis.text.x=element_blank(),
+      axis.text.y=element_blank())
+dev.off()
+@
+
+<<Submatrix>>=
+
+# Processing
+subBT = burt_tb[h_clust$rowInd,h_clust$colInd][1:30,1:30]
+subBT$id = rownames(subBT)
+burt_df = melt(subBT,id="id")
+colnames(burt_df) = c("Variable1","Variable2","N")
+
+# Roeorder rows/columns according to hier. clustering
+burt_df$Variable1 = factor(burt_df$Variable1,levels=rownames(subBT))
+burt_df$Variable2 = factor(burt_df$Variable2,levels=colnames(subBT))
+
+# Plot
+png("~/SubBurt_Table.png",width = 600, height = 600, units = "px", )
+ggplot(burt_df,aes(y=Variable1,x=Variable2,fill=N)) +
+geom_raster() +
+scale_fill_gradient2(low="beige", high="red") +
+theme(axis.title.x=element_text(color="black"),
+      axis.title.y=element_text(color="black"),
+      axis.text.x=element_text(color="black",angle=90),
+      axis.text.y=element_text(color="black"))
+dev.off()
+@
+
+<<Phylogenetic Tree>>=
+
+@
+
+<<k-Means>>=
+# Compute intra-variance sum for different k
+# Determine number of clusters (credits: Quick-R)
+wss <- (nrow(burt_tb)-1)*sum(apply(burt_tb,2,var))
+for (i in 2:15) wss[i] <- sum(kmeans(burt_tb,
+   centers=i)$withinss)
+plot(2:15, wss[2:15], type="b", xlab="Number of Clusters",
+     ylab="Within groups sum of squares")
+
+# Clustering of Burt Table (k-means)
+# K-Means Cluster Analysis (credits: Quick-R)
+kclust <- kmeans(burt_tb,10)
+kclust$cluster
+
+@
+
+
+
+\end{document}
+
+
+

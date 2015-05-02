@@ -1,0 +1,149 @@
+%% Author: Azedine Zoufir
+%% Supervisor : Dr Andreas Bender
+%% All rights reserved 
+%% 13/10/14
+%% This script is used to analyze the overlap
+%% of compounds between the ToxCast datasets and
+%% LINCS INPUT.
+%% datasets: LINCS+TOXCAST InchiKeys
+
+
+\documentclass{article}
+\usepackage[sc]{mathpazo}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\geometry{verbose,tmargin=2.5cm,bmargin=2.5cm,lmargin=2.5cm,rmargin=2.5cm}
+\setcounter{secnumdepth}{2}
+\setcounter{tocdepth}{2}
+\usepackage{url}
+\usepackage[unicode=true,pdfusetitle,
+bookmarks=true,bookmarksnumbered=true,bookmarksopen=true,bookmarksopenlevel=2,
+breaklinks=false,pdfborder={0 0 1},backref=false,colorlinks=false]
+{hyperref}
+\hypersetup{
+pdfstartview={XYZ null null 1}}
+
+
+
+\begin{document}
+<<setup, include=FALSE, cache=FALSE>>=
+library(knitr)
+
+FIG_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration//figures/'
+
+# set global chunk options
+opts_chunk$set(fig.path=FIG_DIR, fig.align='center', fig.show='hold')
+options(formatR.arrow=TRUE,width=90)
+@
+
+
+{\huge Compound Overlaping Analysis}
+<<>>=
+#Path to the project directory - PLEASE CHANGE
+PROJECT_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration/'
+# Path to the directory containing the data for this project
+DATA_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration///data/'
+
+# Libraries
+library(plyr)
+library(xtable)
+library(gdata)
+
+@ 
+
+Structures were extracted from the LINCS, ToxCast and DSSTox datasets (the latter was included in the ToxCast Chemical folder), along with their relevant ID numbers.
+
+<<OA_SmilesExtract>>=
+toxcast=read.xls(
+        file.path(DATA_DIR,"toxcast_2013/chemicals/ToxCast_Generic_Chemicals_2013_12_10.xlsx"))
+write.table(toxcast[,c("DSSTox_GSID","SMILES")],
+            file.path(DATA_DIR,"toxcast_2013/chemicals/ToxCast_All_Smiles.txt"),
+            quote=F,col.names=T,row.names=F,sep="\t")
+
+dsstox=read.xls(
+       file.path(DATA_DIR,"toxcast_2013//chemicals//DSSTox//TOX21S_v4a_8599_11Dec2013.xlsx"))
+write.table(dsstox[,c("DSSTox_GSID","DSSTox_CID","STRUCTURE_SMILES")],
+            file.path(DATA_DIR,"toxcast_2013/chemicals/DSSTox_All_Smiles.txt"),
+            quote=F,col.names=T,row.names=F,sep="\t")
+@ 
+
+These SMILES were then imported into Instant Jchem for standardization and conversion to InChiKey (export into tab files. The structure format string used for smiles was "smiles:-H", while the structure format file used for inchikeys was "inchi:auxNone,Key". \\
+The number of compounds successfully converted to InchiKey for each datasets are printed below.
+
+<<OA_Import Inchis>>=
+
+# Read tables with INCHIKeys 
+lincs = read.table(file.path(DATA_DIR,"lincs/All_Compounds_InchiKeys.tab"),
+                   sep='\t',h=F,stringsAsFactors = F,row.names=1)
+#toxcast = #read.table(file.path(DATA_DIR,"toxcast_2013/chemicals/ToxCast_InchiKeys.tab"),
+#                     sep='\t',h=F,stringsAsFactors = F,row.names=1)
+#dsstox = #read.table(file.path(DATA_DIR,"toxcast_2013/chemicals/DSSTox_InchiKeys.tab"),
+#                   sep='\t',h=F,stringsAsFactors = F,row.names=1)
+
+toxcast = 
+
+
+# Remove duplicated compounds
+lincs = unique(lincs)
+toxcast = unique(toxcast)
+#dsstox = unique(dsstox)
+
+dim(lincs) 
+dim(toxcast) 
+#dim(dsstox) 
+
+@ 
+
+
+
+<<OA_InchikeyProcessing>>=
+
+# Extract InchiKeys from second field
+lincs$Inchikey=unlist(llply(lincs[,1],
+                            function(x) unlist(strsplit(unlist(strsplit(x,"\n"))[2],
+                                                        "InChIKey="))[2]))
+toxcast$Inchikey=unlist(llply(toxcast[,1],
+                            function(x) unlist(strsplit(unlist(strsplit(x,"\n"))[2],
+                                                        "InChIKey="))[2]))
+#dsstox$Inchikey=unlist(llply(dsstox[,1],
+#                            function(x) #unlist(strsplit(unlist(strsplit(x,"\n"))[2],                         #"InChIKey="))[2]))
+@ 
+
+\Sexpr{length(which(toxcast$Inchikey %in% dsstox$Inchikey))} compounds are found in both the Toxcast and DSSTox datasets and must therefore be eliminated. 
+
+<<OA_ToxCastOverlap>>=
+#dsstox=dsstox[-which(dsstox$Inchikey %in% toxcast$Inchikey),]
+#dim(dsstox) 
+@ 
+
+
+
+The number of compounds in common between the LINCS and the two ToxCast datasets are reported in table \ref{OverlapAnalysis_cpCounts}.
+<<OA_Overlaping Analysis Table,results='asis'>>=
+# Number of compounds in common between LINCS and ToxCast (1st column)
+t=c(length(which(lincs$Inchikey %in% toxcast$Inchikey)),
+# Number of compounds in common between LINCS and DSSTox (2nd column)
+length(which(lincs$Inchikey %in% dsstox$Inchikey)))
+# Add the sum of both counts in a third column
+t=t(data.frame(c(t,sum(t))))
+colnames(t)=c("LINCS+ToxCast","LINCS+DSSTox","ALL")
+rownames(t) = "n"
+print(xtable(t, 
+             caption="Counts of compounds shared between the LINCS and
+             ToxCast datasets. DSSTox is part of Toxcast.", 
+             label="OverlapAnalysis_cpCounts"))
+@ 
+Common InchiKeys were then exported for further dataset generation.
+
+<<OA_Export Inchi>>=
+# InchiKeys in common between LINCS and ToxCast
+cmn_Inchikeys = lincs[which(lincs$Inchikey %in% toxcast$Inchikey),"Inchikey"]
+# InchiKeys in common between LINCS and DSSTox
+#cmn_Inchikeys = c(cmn_Inchikeys,lincs[which(lincs$Inchikey %in% dsstox$Inchikey),"Inchikey"])
+writeLines(cmn_Inchikeys,file.path(DATA_DIR,"intermediate_files/cmn_Inchikeys"),sep="\n")
+
+@ 
+
+
+\end{document}
+

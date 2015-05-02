@@ -1,0 +1,117 @@
+
+%% Author: Azedine Zoufir
+%% Supervisor : Dr Andreas Bender
+%% All rights reserved 
+%% 19/01/15
+%% Investigate chemical space, and how compounds are actually similar to each other, or if there big outliers that should be removed from the analysis
+
+\documentclass{article}
+\usepackage[sc]{mathpazo}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\geometry{verbose,tmargin=2.5cm,bmargin=2.5cm,lmargin=2.5cm,rmargin=2.5cm}
+\setcounter{secnumdepth}{2}
+\setcounter{tocdepth}{2}
+\usepackage{url}
+\usepackage[unicode=true,pdfusetitle,
+bookmarks=true,bookmarksnumbered=true,bookmarksopen=true,bookmarksopenlevel=2,
+breaklinks=false,pdfborder={0 0 1},backref=false,colorlinks=false]
+{hyperref}
+\hypersetup{
+pdfstartview={XYZ null null 1}}
+
+\begin{document}
+
+<<setup, include=FALSE, cache=FALSE>>=
+library(knitr)
+
+FIG_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration//figures/'
+
+# set global chunk options
+opts_chunk$set(fig.path=FIG_DIR, fig.align='center', fig.show='hold')
+options(formatR.arrow=TRUE,width=90)
+
+# path
+CALC_DATA_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration///data/'
+
+# Libraries
+library(plyr)
+library(ggplot2)
+library(GGally)
+library(ade4)
+library(Rcpi)
+library(ape)
+library(RColorBrewer)
+@ 
+
+
+<<LoadObjects, echo=F>>=
+#convert smiles to mol objects
+x.mol = readMolFromSmi(file.path(CALC_DATA_DIR,'/SmilesOnly.smi'),type='mol')
+x.smi = readMolFromSmi(file.path(CALC_DATA_DIR,'/SmilesOnly.smi'),type='text')
+
+# load molecular descriptors (name:md.df,type:df)
+load(file.path(CALC_DATA_DIR,'datasets/molDescriptors.Rdata'))
+@
+
+<<molDpca,fig.cap='First 5 PCs of the PCA using molecular descriptors.',results='asis',echo=F>>=
+
+# replace NaNs by NAs
+idx = which(md.df == 'NaN',arr.ind=T)
+a_ply(idx, 1, function(x) {
+    md.df[x[1],x[2]] <<- NA
+})
+      
+# place NA at the center of plot i.e non-informative point 
+# (impact of this is likely  to be small anyway since missing 
+# values accounts for <1% ) 
+md.df2 = t(aaply(as.matrix(md.df),2,function(vec) {
+            m <- mean(vec, na.rm = TRUE)
+            vec[is.na(vec)] <- m
+            return(vec)
+    }))
+# Mol D. PCA
+md.pca = dudi.pca(as.data.frame(md.df2),nf=5,scannf=F)
+
+# Pairwise PC plots
+ggpairs(md.pca$li) + theme_bw()
+
+
+
+# Negative contributions to second axis
+print(xtable(head(md.pca$co[order(md.pca$co[,2]),1:2]),caption='Top negative contributors to second PC and corresponding contribution to first PC.',label='negco2'))
+
+# Posititve contributions to second axis
+print(xtable(tail(md.pca$co[order(md.pca$co[,2]),1:2]),caption='Top positive contributors to second PC and corresponding contribution to first PC.',label='posco2'))
+
+
+@ 
+
+Looking at the first PC plane, some chemicals seem very different from others. These may be outliers and must be removed from subsequent analyses (Axis 1 vs Axis 2, Fig. \ref{fig:molDpca}). Interestingly, chemicals are divided into two groups on the second PC (Axis 2 marginal distribution, and plots in Axis 2 column, Fig. \ref{fig:molDpca}). Tables \ref{} and \ref{} gives the most (resp. positively and negatively) contributing molecular descriptors to these axis. These cannot explain fully the separation between the chemicals, but they may at least explain part of this separation. 
+
+<<FP_pca,echo=F>>=
+fp = read.table('~/data/datasets/fingerprints.tab',h=F,sep='\t',row.names=1)
+
+# Fingerprint PCA
+fp.pca = dudi.pca(fp,scannf=F,nf=5)
+
+# Pairwise PC plots
+ggpairs(fp.pca$li) + theme_bw()
+
+
+@ 
+
+<<chemComparison,echo=F>>=
+# grouping 2nd PC - MD PCA
+pca2_gp = ifelse(md.pca$li[,2] <= 0,1,2)
+
+# grouping 3rd or 4th PC - FP PCA
+
+# compare
+
+
+## Remove outliers (probably export and make separate script removing outliers in all spaces)
+
+@ 
+
+\end{document}

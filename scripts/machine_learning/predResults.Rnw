@@ -1,0 +1,282 @@
+
+%% Author: Azedine Zoufir
+%% Supervisor : Dr Andreas Bender
+%% All rights reserved 
+%% 25/11/14
+
+
+\documentclass{article}
+\usepackage[sc]{mathpazo}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\geometry{verbose,tmargin=2.5cm,bmargin=2.5cm,lmargin=2.5cm,rmargin=2.5cm}
+\setcounter{secnumdepth}{2}
+\setcounter{tocdepth}{2}
+\usepackage{url}
+\usepackage[unicode=true,pdfusetitle,
+bookmarks=true,bookmarksnumbered=true,bookmarksopen=true,bookmarksopenlevel=2,
+breaklinks=false,pdfborder={0 0 1},backref=false,colorlinks=false]
+{hyperref}
+\hypersetup{
+pdfstartview={XYZ null null 1}}
+
+
+
+\begin{document}
+<<setup, include=FALSE, cache=FALSE>>=
+library(knitr)
+library(xtable)
+
+FIG_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration//figures/'
+
+# set global chunk options
+opts_chunk$set(fig.path=FIG_DIR, fig.align='center', fig.show='hold')
+options(formatR.arrow=TRUE,width=90)
+@
+
+<<Initializations>>=
+##INITIALIZATIONS
+
+#Libraries
+library(plyr)
+library(ggplot2)
+library(gplots)
+library(pROC)
+library(topGO)
+
+#Path to the project directory
+PROJECT_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration/'
+# Path to the directory containing the DATa for this project
+DATA_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration///data/'
+
+# Cell line for gene expression dataset
+CLINE = "MCF7"
+
+#In-vivo Tox Outcome
+TOX='BW_decrs'
+#TOX = 'livrCarcino'
+
+# Load prediction results 
+
+# Random Forest predictions
+load(file.path(DATA_DIR,'pred/rf.pred.Rdata')) #all data sources
+load(file.path(DATA_DIR,'pred/rf.predC.Rdata')) #fingerprints only
+load(file.path(DATA_DIR,'pred/rf.predG.Rdata')) #gene expression only
+load(file.path(DATA_DIR,'pred/rf.predBioA.Rdata')) #bioactivity data
+load(file.path(DATA_DIR,'pred/rf.predCBioA.Rdata')) #fingerprints + bioactivity 
+load(file.path(DATA_DIR,'pred/rf.predGBioA.Rdata')) # gene expression + bioactivity 
+load(file.path(DATA_DIR,'pred/rf.predCG.Rdata')) #fingerprints + gene expression
+
+#SVM Predictions
+load(file.path(DATA_DIR,'pred/svm.pred.Rdata')) #all data sources
+load(file.path(DATA_DIR,'pred/svm.predC.Rdata')) #fingerprints only
+load(file.path(DATA_DIR,'pred/svm.predG.Rdata')) #gene expression only
+load(file.path(DATA_DIR,'pred/svm.predBioA.Rdata')) #bioactivity data
+load(file.path(DATA_DIR,'pred/svm.predCBioA.Rdata')) #fingerprints + bioactivity 
+load(file.path(DATA_DIR,'pred/svm.predGBioA.Rdata')) # gene expression + bioactivity 
+load(file.path(DATA_DIR,'pred/svm.predCG.Rdata')) #fingerprints + gene expression
+
+@ 
+
+<<Construct matrices>>=
+ConstrMat = function(predObj) {
+    rows = llply(predObj,function(x) {
+        # even indices correspond to prediction
+        # for the positive class for each down sampling
+        # iteration
+        x = do.call('rbind',x)[,1]
+        return(unlist(x)[seq(2,length(x)*2,2)]) 
+    })
+    return(do.call('rbind',rows))
+}
+p.mt = ConstrMat(rf.pred)
+#pc.mt = ConstrMat(rf.predC)
+#pg.mt = ConstrMat(rf.predG)
+#bioa.mt = ConstrMat(rf.predBioA)
+#cbioa.mt = ConstrMat(rf.predCBioA)
+#gbioa.mt = ConstrMat(rf.predGBioA)
+#cg.mt = ConstrMat(rf.predCG)
+@ 
+
+<<Heatmap,fig.cap='Heatmap of predictions for the positive/toxic class (random forest normalized votes) for the full model (all data sources). Rows are compounds, and columns represent iteration of down sampling. Downsampling results are consistent across compounds (lines display same colours), and averaging the results makes sense in this context. Similar results obtained with other combination of data sources, which means that down sampling is not affected by the data source either. The same conclusion is valid for Support Vector Machine as well (data not shown).'>>=
+heatmap.2(p.mt,dendrogram='none',trace='none',Rowv=NULL,Colv=NULL)
+@ 
+
+<<Average results>>=
+# Load toxic outcomes (body weight decrease) for each compound
+load(file.path(DATA_DIR,paste("intermediate_files/fullDataSet_",TOX,".Rdata",sep="")))
+tox = fullDataset[,TOX]
+
+# Average predictions (random forest)
+AvgPredRF = function(predObj) {
+ return(unlist(llply(predObj, function(x) {
+   x = do.call('rbind',x)[,1]
+   return(mean(unlist(x)[seq(2,length(x)*2,2)]))
+   })))
+}
+rf.avg.pred = AvgPredRF(rf.pred)
+rf.avg.predC =AvgPredRF(rf.predC)
+rf.avg.predG =AvgPredRF(rf.predG)
+rf.avg.predBioA = AvgPredRF(rf.predBioA)
+rf.avg.predCBioA = AvgPredRF(rf.predCBioA)
+rf.avg.predGBioA = AvgPredRF(rf.predGBioA)
+rf.avg.predCG = AvgPredRF(rf.predCG)
+
+#Average predicitons (SVM)
+AvgPredSVM = function(predObj) {
+ return(unlist(llply(predObj, function(x) try(mean(unlist(x),na.rm=T)))))
+}
+svm.avg.pred = AvgPredSVM(svm.pred)
+svm.avg.predC = AvgPredSVM(svm.predC)
+svm.avg.predG = AvgPredSVM(svm.predG)
+svm.avg.predBioA = AvgPredSVM(svm.predBioA)
+svm.avg.predCBioA = AvgPredSVM(svm.predCBioA)
+svm.avg.predGBioA = AvgPredSVM(svm.predGBioA)
+svm.avg.predCG = AvgPredSVM(svm.predCG)
+
+@ 
+
+<<Rocs,fig.cap="Random Forest prediciton performance based on different combinations of data sources. ">>=
+
+# ROC Curves (Random Forest)
+rf.r.p = roc(tox, rf.avg.pred, direction="<")
+rf.r.pC = roc(tox, rf.avg.predC, direction="<")
+rf.r.pBioA = roc(tox, rf.avg.predBioA, direction="<") 
+rf.r.pCBioA = roc(tox, rf.avg.predCBioA, direction="<")
+rf.r.pGBioA = roc(tox, rf.avg.predGBioA, direction="<")
+rf.r.pG = roc(tox, rf.avg.predG, direction="<")
+rf.r.pCG = roc(tox, rf.avg.predCG, direction="<")
+
+plot(rf.r.p)
+rocs = list(rf.r.pC,rf.r.pG,rf.r.pBioA,rf.r.pCBioA,rf.r.pGBioA,rf.r.pCG,title="Random Forest Predictions")
+cols=c("steelblue","yellow","red","purple","orange","green")
+l_ply(1:length(rocs),function(i) {
+    lines(rocs[[i]],col=cols[i])
+    },.print=T)
+legend("bottomright",c(paste("Fingerprint (ECFP4), auc = ",signif(rocs[[1]]$auc,3),sep=""),
+                       paste("Gene Expression (LINCS), auc =  ", signif(rocs[[2]]$auc,3),sep=""),
+                       paste("Bio-Activity (ToxCast), auc = ",signif(rocs[[3]]$auc,3),sep=""),
+                       paste("ECFP4 + ToxCast , auc = ",signif(rocs[[4]]$auc,3),sep=""),
+                       paste("LINCS + ToxCast, auc = ",signif(rocs[[5]]$auc,3),sep=""),
+                       paste("ECFP4 + LINCS, auc = ",signif(rocs[[6]]$auc,3),sep=""),
+                       paste("All, auc = ",signif(r.p$auc,3),sep="")),
+                       lty=rep(1,length(rocs)),
+                       col=c(cols,"black"),
+                       cex=0.9, bty="n", xjust=1, seg.len=0.5)
+
+# ROC Curves (SVM)
+svm.r.p = roc(tox, svm.avg.pred, direction="<")
+svm.r.pC = roc(tox, svm.avg.predC, direction="<")
+svm.r.pBioA = roc(tox, svm.avg.predBioA, direction="<")
+svm.r.pCBioA = roc(tox, svm.avg.predCBioA, direction="<")
+svm.r.pGBioA = roc(tox, svm.avg.predGBioA, direction="<")
+svm.r.pG = roc(tox, svm.avg.predG, direction="<")
+svm.r.pCG = roc(tox, svm.avg.predCG, direction="<")
+
+
+plot(svm.r.p)
+rocs = list(svm.r.pC,svm.r.pG,svm.r.pBioA,svm.r.pCBioA,svm.r.pGBioA,svm.r.pCG,title="Random Forest Predictions")
+cols=c("steelblue","yellow","red","purple","orange","green")
+l_ply(1:length(rocs),function(i) {
+    lines(rocs[[i]],col=cols[i])
+    },.print=T)
+legend("bottomright",c(paste("Fingerprint (ECFP4), auc = ",signif(rocs[[1]]$auc,3),sep=""),
+                       paste("Gene Expression (LINCS), auc =  ", signif(rocs[[2]]$auc,3),sep=""),
+                       paste("Bio-Activity (ToxCast), auc = ",signif(rocs[[3]]$auc,3),sep=""),
+                       paste("ECFP4 + ToxCast , auc = ",signif(rocs[[4]]$auc,3),sep=""),
+                       paste("LINCS + ToxCast, auc = ",signif(rocs[[5]]$auc,3),sep=""),
+                       paste("ECFP4 + LINCS, auc = ",signif(rocs[[6]]$auc,3),sep=""),
+                       paste("All, auc = ",signif(r.p$auc,3),sep="")),
+                       lty=rep(1,length(rocs)),
+                       col=c(cols,"black"),
+                       cex=0.9, bty="n", xjust=1, seg.len=0.5)
+
+@ 
+
+<<Classif Performance>>=
+# Best voting thresholds at which to consider compound toxic
+##rf.t.p = coords(rf.r.p, "best", ret="thres", best.method="closest.topleft")
+## rf.t.pC = coords(rf.r.pC, "best", ret="thres", best.method="closest.topleft")
+## rf.t.pG = coords(rf.r.pG, "best", ret="thres", best.method="closest.topleft")
+## rf.t.pBioA = coords(rf.r.pBioA, "best", ret="thres", best.method="closest.topleft")
+## rf.t.pCBioA = coords(rf.r.pCBioA, "best", ret="thres", best.method="closest.topleft")
+rf.t.pGBioA = coords(rf.r.pGBioA, "best", ret="thres", best.method="closest.topleft")
+svm.t.pGBioA = coords(svm.r.pGBioA, "best", ret="thres", best.method="closest.topleft")
+## rf.t.pCG = coords(rf.r.pCG, "best", ret="thres", best.method="closest.topleft") 
+
+# Apply threshold to the predictions
+## tox.pC = ifelse(rf.avg.predC > t.pC,1,0)
+## tox.pG = ifelse(rf.avg.predG > t.pG,1,0)
+## tox.pBioA = ifelse(rf.avg.predBioA > t.pBioA,1,0)
+## tox.pCBioA = ifelse(rf.avg.predCBioA > t.pCBioA,1,0)
+rf.tox.pGBioA = ifelse(rf.avg.predGBioA > t.pGBioA,1,0)
+svm.tox.pGBioA = ifelse(svm.avg.predGBioA > t.pGBioA,1,0)
+## tox.pCG = ifelse(rf.avg.predCG > t.pCG,1,0)
+## tox.p = ifelse(rf.avg.pred > t.p,1,0)
+
+<<Conf Mats, results='asis'>>=
+# Confusion matrices (RF)
+rf.tbGBioA = table(tox,rf.tox.pGBioA)
+rownames(rf.tbGBioA) = c("-","+")
+colnames(rf.tbGBioA) = c("Predicted -","Predicted +")
+ print(xtable(rf.tbGBioA,caption="Confusion matrix for predictions based on bioactivity (ToxCast) and gene expression (LINCS)."))
+print(xtable(data.frame(sensitivity=signif(rf.tbGBioA["+","Predicted +"] / (rf.tbGBioA["+","Predicted -"] + rf.tbGBioA["+","Predicted +"]),3), # sensitivity
+specificity=signif(rf.tbGBioA["-","Predicted -"] / (rf.tbGBioA["-","Predicted -"] + rf.tbGBioA["-","Predicted +"]),3)),caption="Performance metrics for predictions based on bioactivity (ToxCast) and gene expression (LINCS).")) # specificity
+
+# Confusion matrices (SVM)
+tbGBioA = table(tox,svm.tox.pGBioA)
+rownames(svm.tbGBioA) = c("-","+")
+colnames(svm.tbGBioA) = c("Predicted -","Predicted +")
+ print(xtable(svm.tbGBioA,caption="Confusion matrix for predictions based on bioactivity (ToxCast) and gene expression (LINCS)."))
+print(xtable(data.frame(sensitivity=signif(svm.tbGBioA["+","Predicted +"] / (svm.tbGBioA["+","Predicted -"] + svm.tbGBioA["+","Predicted +"]),3), # sensitivity
+specificity=signif(svm.tbGBioA["-","Predicted -"] / (svm.tbGBioA["-","Predicted -"] + svm.tbGBioA["-","Predicted +"]),3)),caption="Performance metrics for predictions based on bioactivity (ToxCast) and gene expression (LINCS).")) # specificity
+
+## tbC = table(tox,tox.pC)
+## rownames(tbC) = c("-","+")
+## colnames(tbC) = c("Predicted -","Predicted +") 
+## print(xtable(tbC,caption="Confusion matrix for predictions based on fingerprints (ECFP4)."))
+## print(xtable(data.frame(sensitivity=signif(tbC["+","Predicted +"] / (tbC["+","Predicted -"] + tbC["+","Predicted +"]),3), # sensitivity
+## specificity=signif(tbC["-","Predicted -"] / (tbC["-","Predicted -"] + tbC["-","Predicted +"]),3)),caption="Performance metrics for predictions based on fingerprints (ECFP4).")) # specificity
+
+## tbG = table(tox,tox.pG)
+## rownames(tbG) = c("-","+")
+## colnames(tbG) = c("Predicted -","Predicted +")
+
+## print(xtable(tbG,caption="Confusion matrix for predictions based on gene expression (LINCS)."))
+## print(xtable(data.frame(sensitivity=signif(tbG["+","Predicted +"] / (tbG["+","Predicted -"] + tbG["+","Predicted +"]),3), # sensitivity
+## specificity=signif(tbG["-","Predicted -"] / (tbG["-","Predicted -"] + tbG["-","Predicted +"]),3)),caption="Performance metrics for predictions based on gene expression (LINCS)")) # specificity
+
+## tbBioA=table(tox,tox.pBioA)
+## rownames(tbBioA) = c("-","+")
+## colnames(tbBioA) = c("Predicted -","Predicted +")
+## print(xtable(tbBioA,caption="Confusion matrix for predictions based on bioactivity (ToxCast)."))
+## print(xtable(data.frame(sensitivity=signif(tbBioA["+","Predicted +"] / (tbBioA["+","Predicted -"] + tbBioA["+","Predicted +"]),3), # sensitivity
+## specificity=signif(tbBioA["-","Predicted -"] / (tbBioA["-","Predicted -"] + tbBioA["-","Predicted +"]),3)),caption="Performance metrics for predictions based on bioactivity (ToxCast)")) # specificity
+
+## tbCBioA = table(tox,tox.pCBioA) 
+## rownames(tbCBioA) = c("-","+")
+## colnames(tbCBioA) = c("Predicted -","Predicted +")
+## print(xtable(tbCBioA,caption="Confusion matrix for predictions based on bioactivity (ToxCast) combined with fingerprints (ECFP4)."))
+## print(xtable(data.frame(sensitivity=signif(tbCBioA["+","Predicted +"] / (tbCBioA["+","Predicted -"] + tbCBioA["+","Predicted +"]),3), # sensitivity
+## specificity=signif(tbCBioA["-","Predicted -"] / (tbCBioA["-","Predicted -"] + tbCBioA["-","Predicted +"]),3)),caption="Performance metrics for predictions based on bioactivity (ToxCast) combined with fingerprints (ECFP4)")) # specificity
+
+
+## tbCG = table(tox,tox.pCG)
+## rownames(tbCG) = c("-","+")
+## colnames(tbCG) = c("Predicted -","Predicted +")
+## print(xtable(tbCG,caption="Confusion matrix for predictions based on fingerprints (ECFP4) and gene expression (LINCS)."))
+## print(xtable(data.frame(sensitivity=signif(tbCG["+","Predicted +"] / (tbCG["+","Predicted -"] + tbCG["+","Predicted +"]),3), # sensitivity
+## specificity=signif(tbCG["-","Predicted -"] / (tbCG["-","Predicted -"] + tbCG["-","Predicted +"]),3)),caption="Performance metrics for predictions based on fingerprints (ECFP4) and gene expression (LINCS).")) # specificity
+
+## tb = table(tox,tox.p)
+## rownames(tb) = c("-","+")
+## colnames(tb) = c("Predicted -","Predicted +")
+## print(xtable(tb,caption="Confusion matrix for predictions based on all data sources combined."))
+## print(xtable(data.frame(sensitivity=signif(tb["+","Predicted +"] / (tb["+","Predicted -"] + tb["+","Predicted +"]),3), # sensitivity
+## specificity=signif(tb["-","Predicted -"] / (tb["-","Predicted -"] + tb["-","Predicted +"]),3)),caption="Performance metrics for predictions based on all data sources combined.")) # specificity
+
+@ 
+
+
+\end{document}
+

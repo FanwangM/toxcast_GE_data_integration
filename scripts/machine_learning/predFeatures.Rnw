@@ -1,0 +1,237 @@
+
+%% Author: Azedine Zoufir
+%% Supervisor : Dr Andreas Bender
+%% All rights reserved 
+%% 8/12/14
+
+
+
+\documentclass{article}
+\usepackage[sc]{mathpazo}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\geometry{verbose,tmargin=2.5cm,bmargin=2.5cm,lmargin=2.5cm,rmargin=2.5cm}
+\setcounter{secnumdepth}{2}
+\setcounter{tocdepth}{2}
+\usepackage{url}
+\usepackage[unicode=true,pdfusetitle,
+bookmarks=true,bookmarksnumbered=true,bookmarksopen=true,bookmarksopenlevel=2,
+breaklinks=false,pdfborder={0 0 1},backref=false,colorlinks=false]
+{hyperref}
+\hypersetup{
+pdfstartview={XYZ null null 1}}
+
+
+
+\begin{document}
+<<setup, include=FALSE, cache=FALSE>>=
+library(knitr)
+library(xtable)
+
+FIG_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration//figures/'
+
+# set global chunk options
+opts_chunk$set(fig.path=FIG_DIR, fig.align='center', fig.show='hold')
+options(formatR.arrow=TRUE,width=90)
+@
+
+<<Initializations>>=
+##INITIALIZATIONS
+
+#Libraries
+library(plyr)
+library(ggplot2)
+library(gplots)
+library(pROC)
+library(topGO)
+
+#Path to the project directory
+PROJECT_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration/'
+# Path to the directory containing the DATa for this project
+DATA_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration///data/'
+DATA_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration///data/'
+# Cell line for gene expression dataset
+CLINE = "MCF7"
+
+#In-vivo Tox Outcome
+TOX='BW_decrs'
+#TOX = 'livrCarcino'
+
+# load prediciton results and associated RF importances 
+load(file.path(DATA_DIR,'pred/rf.predGBioA.Rdata')) # gene expression + bioactivity 
+
+
+<<FeaturesRF>>=
+
+# Compound counter
+cp = 1
+# Extract average importances per compound
+RFperC = llply(rf.predGBioA, function(x) {
+    i = 1
+    # Extract importances
+    imp = (llply(x, function(y) {
+        df = as.data.frame(y[[2]]) 
+        df$dfNum = i
+        df$feature = rownames(df)
+        colnames(df)[1:2] = c("Pred.0","Pred.1")
+        # Transform into relative importances
+        df$Relative.Imp = df$MeanDecreaseAccuracy / max(df$MeanDecreaseAccuracy)
+        i <<- i + 1
+        return(df)
+    }))
+   # Average relative importances
+   bndRes  = do.call('rbind',imp)
+   df = ddply(bndRes,.(feature),colwise(mean,.(Pred.0,Pred.1,MeanDecreaseAccuracy,MeanDecreaseGini,Relative.Imp)))
+   df$Compound = cp
+   cp <<- cp + 1
+   return(df)
+})
+
+@ 
+
+<<Imp. Heatmap,fig.caption='Heatmap of relative importances per compound. Note that importances of features are consistent accross compounds (approximately same intensity along lines). The most important features for Body Weight Decrease were target inhibition of Nrf2 and aromatase, as well as the gene expression of ITGAE,TLK2 and BMP4 '>>=
+
+# Importances heatmap per compound
+allRF = do.call('rbind',RFperC) 
+ggplot(allRF, aes(x=Compound,y=feature,fill=Relative.Imp)) +
+geom_raster() +
+scale_fill_gradient(low="azure2",high="red")
+
+@ 
+
+<<Imp. Barplot,fig.caption='Averaged Relative importances. ' >>=
+
+# Importances averages and ranked
+avgImp = ddply(allRF,.(feature),colwise(mean,.(Relative.Imp)))
+avgImp=avgImp[order(avgImp$Relative.Imp),]
+avgImp$feature = factor(avgImp$feature,levels=avgImp$feature)
+ggplot(avgImp,aes(x=feature,y=Relative.Imp)) +
+geom_bar(stat="identity") +
+coord_flip()
+
+
+@ 
+
+These relative importances were used to compute a gene set enrichment analysis, in order to correlate the top targets with pathways.
+
+<<Target/Assay link>>=
+
+# load target/gene annotation
+targets_anno= read.table(file.path(DATA_DIR,"intermediate_files/assay_target.tab"),h=T,sep="\t")
+
+# Load toxic outcomes (body weight decrease) for each compound
+load(file.path(DATA_DIR,paste("intermediate_files/fullDataSet_",TOX,".Rdata",sep="")))
+
+# load assay annotation
+load(file.path(DATA_DIR,"intermediate_files/full_boolAct_anno.Rdata"))
+
+# get target (if available) for toxcast assays
+ids = match(colnames(fullDataset),boolAct_anno$aenm)
+ids = subset(ids, !is.na(ids))
+assay_ids = boolAct_anno[ids,"aeid"]
+assay_ids = match(assay_ids,targets_anno$aeid)
+#assay_ids = subset(assay_ids, !is.na(assay_ids))
+gene_symbols = targets_anno[assay_ids,"gene_symbol"]
+
+# concatenate tox21 assay names with corresponding gene symbols (where possible
+# i.e assay has a pharma target )
+tox21Genes = data.frame(Assay_Name=boolAct_anno[ids,"aenm"],GENE=gene_symbols)
+
+# get gene symbols from lincs in the full dataset
+ids = grep(paste("FP_|Tox21_|",TOX,sep=""),colnames(fullDataset),invert=T)
+lincsGenes = colnames(fullDataset)[ids]
+
+
+@
+
+<<Gene Rel.Imp,fig.cap='Relative importances with assays being replaced by their correpsonding target gene symbol.'>>=
+# whole genes in the dataset
+allGenes = unique(c(as.character(tox21Genes$GENE),lincsGenes))
+
+# remove missing values (not useful since not identifiable)
+allGenes = subset(allGenes,!is.na(allGenes))
+
+# scores = relative importances
+scores = avgImp[,"Relative.Imp"]
+names(scores) = avgImp[,"feature"]
+
+# match assays with corresponding gene in the 
+# scores lists
+matchingAssays = match(tox21Genes$Assay_Name,names(scores))
+l_ply(1:length(matchingAssays),function(i) {
+    if(!is.na(matchingAssays[i]))  
+        names(scores)[matchingAssays[i]] <<- as.character(tox21Genes$GENE[i])  
+    })
+#processing for the plot
+scores = subset(scores,!is.na(names(scores)))
+score.df = data.frame(GENE=names(scores),SCORE=scores)
+score.df = score.df[order(score.df$SCORE),]
+score.df$GENE = factor(score.df$GENE,levels=score.df$GENE)
+
+# Relative importances with gene names insted of assay
+ggplot(score.df,aes(x=GENE,y=SCORE)) +
+geom_bar(stat="identity") +
+coord_flip()
+
+@ 
+
+
+<<GSEA>>=
+library(topGO)
+library(org.Hs.eg.db)
+
+# create full score vector for gsea
+allGscores = rep(0,length(allGenes))
+names(allGscores) = allGenes
+
+# update with relative importances calculated
+# above (for genes selected at the feature selection step)
+allGscores[match(names(scores),names(allGscores))] = scores
+
+# convert the genes into ensembl ids
+#anno_table = select(org.Hs.eg.db,
+#    keys = names(allGscores),
+#    columns=c("ENTREZID","SYMBOL","GENENAME","GO","PATH"),
+#    keytype="SYMBOL")
+
+# Biological Process
+BP_obj= new("topGOdata",
+    description = "Rel. Imp BP", 
+    ontology = "BP",
+    allGenes = allGscores, 
+    geneSel = function(x) return(x>0),
+    nodeSize = 10,
+    annot = annFUN.org,mapping="org.Hs.eg.db",ID="symbol")
+BP_test=runTest(BP_obj, algorithm = "elim", statistic = "ks")
+BP_Table=GenTable(BP_obj, KS=BP_test, topNodes = 100, numChar=150)
+subset(BP_Table,KS<.05 & Significant >= 1)
+
+# Molecular Function
+MF_obj= new("topGOdata",
+    description = "Rel. Imp MF", 
+    ontology = "MF",
+    allGenes = allGscores, 
+    geneSel = function(x) return(x>0),
+    nodeSize = 10,
+    annot = annFUN.org,mapping="org.Hs.eg.db",ID="symbol")
+MF_test=runTest(MF_obj, algorithm = "elim", statistic = "ks")
+MF_Table=GenTable(MF_obj, KS=MF_test, topNodes = 100, numChar=150)
+subset(MF_Table,KS<.05 & Significant >= 1)
+
+
+# Cellular Component
+CC_obj= new("topGOdata",
+    description = "Rel. Imp CC", 
+    ontology = "CC",
+    allGenes = allGscores, 
+    geneSel = function(x) return(x>0),
+    nodeSize = 10,
+    annot = annFUN.org,mapping="org.Hs.eg.db",ID="symbol")
+CC_test=runTest(CC_obj, algorithm = "elim", statistic = "ks")
+CC_Table=GenTable(CC_obj, KS=CC_test, topNodes = 100, numChar=150)
+subset(CC_Table,KS<.05 & Significant >= 1)
+
+
+@ 
+
+\end{document}

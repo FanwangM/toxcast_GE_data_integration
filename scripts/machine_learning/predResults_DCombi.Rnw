@@ -1,0 +1,398 @@
+
+%% Author: Azedine Zoufir
+%% Supervisor : Dr Andreas Bender
+%% All rights reserved 
+%% 25/11/14
+
+
+\documentclass{article}
+\usepackage[sc]{mathpazo}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\geometry{verbose,tmargin=2.5cm,bmargin=2.5cm,lmargin=2.5cm,rmargin=2.5cm}
+\setcounter{secnumdepth}{2}
+\setcounter{tocdepth}{2}
+\usepackage{url}
+\usepackage[unicode=true,pdfusetitle,
+bookmarks=true,bookmarksnumbered=true,bookmarksopen=true,bookmarksopenlevel=2,
+breaklinks=false,pdfborder={0 0 1},backref=false,colorlinks=false]
+{hyperref}
+\hypersetup{
+pdfstartview={XYZ null null 1}}
+
+\title{Body weight increase predictions based on different data types for different number of features.}
+
+\begin{document}
+\maketitle
+
+<<setup, include=FALSE, cache=FALSE>>=
+library(knitr)
+library(xtable)
+
+FIG_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration//figures/'
+
+# set global chunk options
+opts_chunk$set(fig.path=FIG_DIR, fig.align='center', fig.show='hold')
+options(formatR.arrow=TRUE,width=90)
+@
+
+<<Initializations, include=FALSE, echo=F>>=
+##INITIALIZATIONS
+
+#Libraries
+library(plyr)
+library(ggplot2)
+library(gplots)
+library(pROC)
+
+
+#Path to the project directory
+PROJECT_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration/'
+# Path to the directory containing the DATa for this project
+DATA_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration///data/'
+
+# Cell line for gene expression dataset
+CLINE = "MCF7"
+
+#In-vivo Tox Outcome
+TOX='BW_decrs'
+#TOX = 'livrCarcino'
+
+
+#Load Random Forest predictions
+load(file.path(DATA_DIR,'pred/RF_fs_DCombi_preds.Rdata'))
+
+#Load SVM Predictions
+load(file.path(DATA_DIR,'pred/SVM_fs_DCombi_preds.Rdata'))
+
+# Load toxic outcomes (body weight decrease) for each compound
+load(file.path(DATA_DIR,paste("intermediate_files/fullDataSet_",TOX,".Rdata",sep="")))
+tox = fullDataset[,TOX]
+
+
+@ 
+
+
+<<Avg_res_RF,include=F, echo=F>>=
+
+# Average predictions (Random forest)
+AvgPredRF = function(predObj) {
+ return(unlist(llply(predObj, function(x) {
+   x = do.call('rbind',x)[,1]
+   return(mean(unlist(x)[seq(2,length(x)*2,2)]))
+   })))
+}
+# FP
+rf.f5=AvgPredRF(rfRes[[1]][[1]]) # 5 Features
+rf.f10=AvgPredRF(rfRes[[1]][[2]]) # 10 Features
+rf.f20=AvgPredRF(rfRes[[1]][[3]]) # 20 Features
+rf.f50=AvgPredRF(rfRes[[1]][[4]]) # 50 Features
+
+# BioAc
+rf.b5=AvgPredRF(rfRes[[2]][[1]]) # 5 Features
+rf.b10=AvgPredRF(rfRes[[2]][[2]]) # 10 Features
+rf.b20=AvgPredRF(rfRes[[2]][[3]]) # 20 Features
+rf.b50=AvgPredRF(rfRes[[2]][[4]]) # 50 Features
+
+# GE
+rf.g5=AvgPredRF(rfRes[[3]][[1]]) # 5 Features
+rf.g10=AvgPredRF(rfRes[[3]][[2]]) # 10 Features
+rf.g20=AvgPredRF(rfRes[[3]][[3]]) # 20 Features
+rf.g50=AvgPredRF(rfRes[[3]][[4]]) # 50 Features
+
+# FP.BioA
+rf.fb5=AvgPredRF(rfRes[[4]][[1]]) # 5 Features
+rf.fb10=AvgPredRF(rfRes[[4]][[2]]) # 10 Features
+rf.fb20=AvgPredRF(rfRes[[4]][[3]]) # 20 Features
+rf.fb50=AvgPredRF(rfRes[[4]][[4]]) # 50 Features
+
+# FP.GE
+rf.fg5=AvgPredRF(rfRes[[5]][[1]]) # 5 Features
+rf.fg10=AvgPredRF(rfRes[[5]][[2]]) # 10 Features
+rf.fg20=AvgPredRF(rfRes[[5]][[3]]) # 20 Features
+rf.fg50=AvgPredRF(rfRes[[5]][[4]]) # 50 Features
+
+# BioA.GE
+rf.bg5=AvgPredRF(rfRes[[6]][[1]]) # 5 Features
+rf.bg10=AvgPredRF(rfRes[[6]][[2]]) # 10 Features
+rf.bg20=AvgPredRF(rfRes[[6]][[3]]) # 20 Features
+rf.bg50=AvgPredRF(rfRes[[6]][[4]]) # 50 Features
+
+# All
+rf.a5=AvgPredRF(rfRes[[7]][[1]]) # 5 Features
+rf.a10=AvgPredRF(rfRes[[7]][[2]]) # 10 Features
+rf.a20=AvgPredRF(rfRes[[7]][[3]]) # 20 Features
+rf.a50=AvgPredRF(rfRes[[7]][[4]]) # 50 Features
+
+@
+
+ 
+
+<<Avg_res_SVM, include=F, echo=F>>=
+#Average predicitons (SVM)
+AvgPredSVM = function(predObj) {
+ return(unlist(llply(predObj, function(x) try(mean(unlist(x),na.rm=T)))))
+}
+
+# FP
+svm.f5=AvgPredSVM(svmRes[[1]][[1]]) # 5 Features
+svm.f10=AvgPredSVM(svmRes[[1]][[2]]) # 10 Features
+svm.f20=AvgPredSVM(svmRes[[1]][[3]]) # 20 Features
+svm.f50=AvgPredSVM(svmRes[[1]][[4]]) # 50 Features
+
+# BioAc
+svm.b5=AvgPredSVM(svmRes[[2]][[1]]) # 5 Features
+svm.b10=AvgPredSVM(svmRes[[2]][[2]]) # 10 Features
+svm.b20=AvgPredSVM(svmRes[[2]][[3]]) # 20 Features
+svm.b50=AvgPredSVM(svmRes[[2]][[4]]) # 50 Features
+
+# GE
+svm.g5=AvgPredSVM(svmRes[[3]][[1]]) # 5 Features
+svm.g10=AvgPredSVM(svmRes[[3]][[2]]) # 10 Features
+svm.g20=AvgPredSVM(svmRes[[3]][[3]]) # 20 Features
+svm.g50=AvgPredSVM(svmRes[[3]][[4]]) # 50 Features
+
+# FP.BioA
+svm.fb5=AvgPredSVM(svmRes[[4]][[1]]) # 5 Features
+svm.fb10=AvgPredSVM(svmRes[[4]][[2]]) # 10 Features
+svm.fb20=AvgPredSVM(svmRes[[4]][[3]]) # 20 Features
+svm.fb50=AvgPredSVM(svmRes[[4]][[4]]) # 50 Features
+
+# FP.GE
+svm.fg5=AvgPredSVM(svmRes[[5]][[1]]) # 5 Features
+svm.fg10=AvgPredSVM(svmRes[[5]][[2]]) # 10 Features
+svm.fg20=AvgPredSVM(svmRes[[5]][[3]]) # 20 Features
+svm.fg50=AvgPredSVM(svmRes[[5]][[4]]) # 50 Features
+
+# BioA.GE
+svm.bg5=AvgPredSVM(svmRes[[6]][[1]]) # 5 Features
+svm.bg10=AvgPredSVM(svmRes[[6]][[2]]) # 10 Features
+svm.bg20=AvgPredSVM(svmRes[[6]][[3]]) # 20 Features
+svm.bg50=AvgPredSVM(svmRes[[6]][[4]]) # 50 Features
+
+# All
+svm.a5=AvgPredSVM(svmRes[[7]][[1]]) # 5 Features
+svm.a10=AvgPredSVM(svmRes[[7]][[2]]) # 10 Features
+svm.a20=AvgPredSVM(svmRes[[7]][[3]]) # 20 Features
+svm.a50=AvgPredSVM(svmRes[[7]][[4]]) # 50 Features
+
+@ 
+
+
+<<PlotRocFn,echo=F>>=
+plotRocs = function(rocs) {
+    # Colors (RF:red, SVM:blue)
+    cols=c("tomato1","tomato2","tomato3","tomato4","skyblue1","skyblue2","skyblue3","skyblue4")
+    plot(rocs[[1]],col=cols[1])
+l_ply(2:length(rocs),function(i) {
+    lines(rocs[[i]],col=cols[i])
+    })
+legend("bottomright",c(paste("RF: 5 Features, auc = ",signif(rocs[[1]]$auc,2),sep=""),
+                       paste("RF: 10 Features, auc =  ", signif(rocs[[2]]$auc,2),sep=""),
+                       paste("RF: 20 Features, auc = ",signif(rocs[[3]]$auc,2),sep=""),
+                       paste("RF: 50 Features , auc = ",signif(rocs[[4]]$auc,2),sep=""),
+                       paste("SVM: 5 Features, auc = ",signif(rocs[[5]]$auc,2),sep=""),
+                       paste("SVM: 10 Features, auc = ",signif(rocs[[6]]$auc,2),sep=""),
+                       paste("SVM: 20 Features, auc = ",signif(rocs[[7]]$auc,2),sep=""),
+                       paste("SVM: 50 Features, auc = ",signif(rocs[[8]]$auc,2),sep="")),
+                       lty=rep(1,length(rocs)),
+                       col=cols,
+                       cex=0.9, bty="n", xjust=1, seg.len=0.5)   
+}
+@ 
+
+
+<<RocsFP,fig.cap="Influence of feature selection on predictions based on fingerprints", echo=F>>=
+
+
+# Compute ROCs
+rf.rocF5 = roc(tox,rf.f5,direction='<')
+rf.rocF10 = roc(tox,rf.f10,direction='<')
+rf.rocF20 = roc(tox,rf.f20,direction='<')
+rf.rocF50 = roc(tox,rf.f50,direction='<')
+svm.rocF5 = roc(tox,svm.f5,direction='<') 
+svm.rocF10 = roc(tox,svm.f10,direction='<')
+svm.rocF20 = roc(tox,svm.f20,direction='<')
+svm.rocF50 = roc(tox,svm.f50,direction='<')
+
+
+# ROC vector
+rocs = list(rf.rocF5,rf.rocF10,rf.rocF20,rf.rocF50,svm.rocF5,svm.rocF10,svm.rocF20,svm.rocF50)
+
+# Plot ROCs
+plotRocs(rocs)
+
+@ 
+
+Random Forest prediction performance based on fingerprints was about random no matter the number of features considered. However, SVM predictions based on fingerprints yielded an AUC of 0.56 and 0.58 for 20 and 50 features respectively.
+
+<<RocsBioA, fig.cap="Influence of feature selection on predictions based on in-vitro assays", echo=F>>=
+# Compute ROCs
+rf.rocB5 = roc(tox,rf.b5,direction='<') 
+rf.rocB10 = roc(tox,rf.b10,direction='<')
+rf.rocB20 = roc(tox,rf.b20,direction='<')
+rf.rocB50 = roc(tox,rf.b50,direction='<')
+svm.rocB5 = roc(tox,svm.b5,direction='<') 
+svm.rocB10 = roc(tox,svm.b10,direction='<')
+svm.rocB20 = roc(tox,svm.b20,direction='<')
+svm.rocB50 = roc(tox,svm.b50,direction='<')
+
+
+# ROC vector
+rocs = list(rf.rocB5,rf.rocB10,rf.rocB20,rf.rocB50,svm.rocB5,svm.rocB10,svm.rocB20,svm.rocB50)
+
+
+# Plot ROCs
+plotRocs(rocs)
+
+
+@ 
+
+SVM predictions were worse than random on in-vitro activities. Random Forest predictions were about random. In-vitro activities alone may not be enough to predict in-vivo toxicity.
+
+<<RocsGE, fig.cap="Influence of feature selection on predictions based on gene expression data", echo=F>>=
+# Compute ROCs
+rf.rocG5 = roc(tox,rf.g5,direction='<') 
+rf.rocG10 = roc(tox,rf.g10,direction='<')
+rf.rocG20 = roc(tox,rf.g20,direction='<')
+rf.rocG50 = roc(tox,rf.g50,direction='<')
+svm.rocG5 = roc(tox,svm.g5,direction='<') 
+svm.rocG10 = roc(tox,svm.g10,direction='<')
+svm.rocG20 = roc(tox,svm.g20,direction='<')
+svm.rocG50 = roc(tox,svm.g50,direction='<')
+
+
+# ROC vector
+rocs = list(rf.rocG5,rf.rocG10,rf.rocG20,rf.rocG50,svm.rocG5,svm.rocG10,svm.rocG20,svm.rocG50)
+
+
+# Plot ROCs
+plotRocs(rocs)
+
+
+@ 
+
+Gene expression performance is about random for both classifiers, and worse than radom 
+for Random Forest with 5 features, and SVM with 50 features. Gene Expression data alone may no be enough to prediction in-vivo toxicity.
+
+<<RocsF.B, echo=F, fig.cap="Influence of feature selection on predictions based on fingerprints and in-vitro assays">>=
+# Compute ROCs
+rf.rocFB5 = roc(tox,rf.fb5,direction='<') 
+rf.rocFB10 = roc(tox,rf.fb10,direction='<')
+rf.rocFB20 = roc(tox,rf.fb20,direction='<')
+rf.rocFB50 = roc(tox,rf.fb50,direction='<')
+svm.rocFB5 = roc(tox,svm.fb5,direction='<') 
+svm.rocFB10 = roc(tox,svm.fb10,direction='<')
+svm.rocFB20 = roc(tox,svm.fb20,direction='<')
+svm.rocFB50 = roc(tox,svm.fb50,direction='<')
+
+
+# ROC vector
+rocs = list(rf.rocFB5,rf.rocFB10,rf.rocFB20,rf.rocFB50,svm.rocFB5,svm.rocFB10,svm.rocFB20,svm.rocFB50)
+
+
+# Plot ROCs
+plotRocs(rocs)
+@ 
+
+When fingerprints where combined with in-vitro assay data, Random Forest with 20 features outperformed other Random Forest with different numbers of features and SVM with all number of features tested. It yielded an AUC of 0.6 
+
+
+<<RocsF.G, echo=F, fig.cap="Influence of feature selection on predictions based on fingerprints and gene expression data">>=
+# Compute ROCs
+rf.rocFG5 = roc(tox,rf.fg5,direction='<') 
+rf.rocFG10 = roc(tox,rf.fg10,direction='<')
+rf.rocFG20 = roc(tox,rf.fg20,direction='<')
+rf.rocFG50 = roc(tox,rf.fg50,direction='<')
+svm.rocFG5 = roc(tox,svm.fg5,direction='<') 
+svm.rocFG10 = roc(tox,svm.fg10,direction='<')
+svm.rocFG20 = roc(tox,svm.fg20,direction='<')
+svm.rocFG50 = roc(tox,svm.fg50,direction='<')
+
+
+# ROC vector
+rocs = list(rf.rocFG5,rf.rocFG10,rf.rocFG20,rf.rocFG50,svm.rocFG5,svm.rocFG10,svm.rocFG20,svm.rocFG50)
+
+
+# Plot ROCs
+plotRocs(rocs)
+
+@ 
+
+Predictions based on a combination of gene expression data and fingerprints, perfomed worse than random.
+
+
+<<RocsB.G, echo=F, fig.cap="Influence of feature selection on predictions based on in-vitro assays and gene expression data">>=
+# Compute ROCs
+rf.rocBG5 = roc(tox,rf.bg5,direction='<') 
+rf.rocBG10 = roc(tox,rf.bg10,direction='<')
+rf.rocBG20 = roc(tox,rf.bg20,direction='<')
+rf.rocBG50 = roc(tox,rf.bg50,direction='<')
+svm.rocBG5 = roc(tox,svm.bg5,direction='<') 
+svm.rocBG10 = roc(tox,svm.bg10,direction='<')
+svm.rocBG20 = roc(tox,svm.bg20,direction='<')
+svm.rocBG50 = roc(tox,svm.bg50,direction='<')
+
+# ROC vector
+rocs = list(rf.rocBG5,rf.rocBG10,rf.rocBG20,rf.rocBG50,svm.rocBG5,svm.rocBG10,svm.rocBG20,svm.rocBG50)
+
+
+# Plot ROCs
+plotRocs(rocs)
+@ 
+
+SVM and Random Forest performed similarly with 50 features on a combination of gene expression and in-vitro assay data. SVM yielded an AUC of 0.64 and RF produced an AUC of 0.65. It might be that this particular combination of data is suitable for the prediction of in-vivo toxicity.
+
+
+<<RocsALL, echo=F, fig.cap="Influence of feature selection on predictions based on the full dataset">>=
+# Compute ROCs
+rf.rocA5 = roc(tox,rf.a5,direction='<') 
+rf.rocA10 = roc(tox,rf.a10,direction='<')
+rf.rocA20 = roc(tox,rf.a20,direction='<')
+rf.rocA50 = roc(tox,rf.a50,direction='<')
+svm.rocA5 = roc(tox,svm.a5,direction='<') 
+svm.rocA10 = roc(tox,svm.a10,direction='<')
+svm.rocA20 = roc(tox,svm.a20,direction='<')
+svm.rocA50 = roc(tox,svm.a50,direction='<')
+
+# ROC vector
+rocs = list(rf.rocA5,rf.rocA10,rf.rocA20,rf.rocA50,svm.rocA5,svm.rocA10,svm.rocA20,svm.rocA50)
+
+# Plot ROCs
+plotRocs(rocs)
+
+@ 
+
+Predictions based on the full dataset, produced predictions about random except for Random Forest with 5 and 10 features which perfomed worse than random, and SVM with 5 features which also perfomed worse than random.
+
+<<Classif at best threshold, echo=F>>=
+rf.t.pGBioA = coords(rf.rocBG50, "best", ret="thres", best.method="closest.topleft")
+svm.t.pGBioA = coords(svm.rocBG50, "best", ret="thres", best.method="closest.topleft")
+
+rf.tox.pGBioA = ifelse(rf.bg50 > rf.t.pGBioA,1,0)
+svm.tox.pGBioA = ifelse(svm.bg50 > svm.t.pGBioA,1,0)
+@ 
+
+<<Conf Mats, results='asis', echo=F>>=
+# Confusion matrices (RF)
+rf.tbGBioA = table(tox,rf.tox.pGBioA)
+rownames(rf.tbGBioA) = c("-","+")
+colnames(rf.tbGBioA) = c("Predicted -","Predicted +")
+ print(xtable(rf.tbGBioA,caption="Confusion matrix for predictions based on bioactivity (ToxCast) and gene expression (LINCS)."))
+print(xtable(data.frame(sensitivity=signif(rf.tbGBioA["+","Predicted +"] / (rf.tbGBioA["+","Predicted -"] + rf.tbGBioA["+","Predicted +"]),3), # sensitivity
+specificity=signif(rf.tbGBioA["-","Predicted -"] / (rf.tbGBioA["-","Predicted -"] + rf.tbGBioA["-","Predicted +"]),3)),caption="Performance metrics for predictions based on bioactivity (ToxCast) and gene expression (LINCS).")) # specificity
+
+# Confusion matrices (SVM)
+svm.tbGBioA = table(tox,svm.tox.pGBioA)
+rownames(svm.tbGBioA) = c("-","+")
+colnames(svm.tbGBioA) = c("Predicted -","Predicted +")
+ print(xtable(svm.tbGBioA,caption="Confusion matrix for predictions based on bioactivity (ToxCast) and gene expression (LINCS)."))
+print(xtable(data.frame(sensitivity=signif(svm.tbGBioA["+","Predicted +"] / (svm.tbGBioA["+","Predicted -"] + svm.tbGBioA["+","Predicted +"]),3), # sensitivity
+specificity=signif(svm.tbGBioA["-","Predicted -"] / (svm.tbGBioA["-","Predicted -"] + svm.tbGBioA["-","Predicted +"]),3)),caption="Performance metrics for predictions based on bioactivity (ToxCast) and gene expression (LINCS).")) # specificity
+@ 
+
+
+
+
+\end{document}
+
