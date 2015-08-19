@@ -20,8 +20,7 @@ CALC_DATA_DIR='/scratch/az338/ucc-fileserver/ucc_az///toxCast_lincs_integration/
 load(file.path(CALC_DATA_DIR,"/chemicals.Rdata"))
 
 drv = dbDriver("MySQL")
-pass = readLines("~/.mysqlcred")
-con = dbConnect(drv,user='az338',pass=pass,dbname='toxcast')
+con = dbConnect(drv,user='az338',pass='pleasechange',dbname='toxcast')
 
 # match chemicals GSID with sample IDs in the database
 sampleIDs = llply(as.character(chemicals$TC_ID),function(gsid) {
